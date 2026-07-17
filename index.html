@@ -132,47 +132,67 @@
             return;
         }
 
-        // 1. Ubah indikator statis (11) menjadi dinamis (12) secara aman
-        let qrisBase = qrisStatis.replace(/010211/i, "010212");
+        // 1. Bongkar string QRIS menjadi Object Map berdasarkan Spesifikasi EMVCo
+        let tags = {};
+        let index = 0;
         
-        // 2. Potong string sampai sebelum penanda CRC "6304" (case-insensitive)
-        const indexCRC = qrisBase.toUpperCase().indexOf("6304");
-        if (indexCRC !== -1) {
-            qrisBase = qrisBase.substring(0, indexCRC);
-        } else {
-            alert('Format QRIS tidak valid atau penanda CRC tidak ditemukan!');
+        while (index < qrisStatis.length) {
+            if (index + 4 > qrisStatis.length) break;
+            let tagId = qrisStatis.substring(index, index + 2);
+            let tagLength = parseInt(qrisStatis.substring(index + 2, index + 4), 10);
+            index += 4;
+            
+            if (index + tagLength > qrisStatis.length) break;
+            let tagValue = qrisStatis.substring(index, index + tagLength);
+            index += tagLength;
+            
+            tags[tagId] = tagValue;
+        }
+
+        // Validasi dasar apakah ini string QRIS yang benar
+        if (!tags["00"] || !tags["51"] && !tags["26"]) {
+            alert("Format QRIS asli tidak valid, Mak! Coba cek copas-annya.");
             return;
         }
-        
-        // 3. Buat tag nominal (Tag 54) sesuai aturan EMVCo
+
+        // 2. Ubah indikator data QRIS menjadi Dinamis (Tag 01 dicustom jadi '12')
+        tags["01"] = "12";
+
+        // 3. Masukkan nominal ke Tag 54
         const stringNominal = nominal.toString();
-        const panjangNominal = stringNominal.length.toString().padStart(2, '0');
-        const tagNominal = "54" + panjangNominal + stringNominal;
+        tags["54"] = stringNominal;
+
+        // 4. Buat ulang string QRIS dengan urutan tag yang teratur dan sesuai standar EMVCo
+        let qrisDinamisBase = "";
         
-        // 4. Cari posisi tag mata uang "5802ID" secara aman (bisa huruf besar/kecil)
-        const posisiSisip = qrisBase.toUpperCase().indexOf("5802ID");
-        if (posisiSisip === -1) {
-            alert('Tag mata uang (5802ID) tidak ditemukan dalam string QRIS! Pastikan teks QRIS disalin secara lengkap.');
-            return;
-        }
-        
-        // Selipkan tag nominal tepat sebelum tag 5802ID
-        let qrisDinamis = qrisBase.slice(0, posisiSisip) + tagNominal + qrisBase.slice(posisiSisip);
-        
-        // 5. Tambahkan kembali penanda CRC "6304" di akhir
-        qrisDinamis += "6304";
-        
+        // Urutan standar ID tag EMVCo QRIS yang wajib berurutan
+        const urutanTag = [
+            "00", "01", "02", "03", "26", "27", "28", "29", "30", "31", "32", "33", "34", "35", "36", "37", "38", "39", "40",
+            "41", "42", "43", "44", "45", "46", "47", "48", "49", "50", "51", "52", "53", "54", "55", "56", "57", "58", "59",
+            "60", "61", "62", "64"
+        ];
+
+        // Susun kembali string berdasarkan urutan array di atas
+        urutanTag.forEach(tagId => {
+            if (tags[tagId] !== undefined) {
+                let value = tags[tagId];
+                let lengthStr = value.length.toString().padStart(2, '0');
+                qrisDinamisBase += tagId + lengthStr + value;
+            }
+        });
+
+        // 5. Tempelkan tag penanda CRC di paling akhir
+        qrisDinamisBase += "6304";
+
         // 6. Hitung nilai checksum CRC16 yang baru
-        const crcBaru = hitungCRC16(qrisDinamis);
-        
-        // 7. Gabungkan string final
-        const qrisFinal = qrisDinamis + crcBaru;
+        const crcBaru = hitungCRC16(qrisDinamisBase);
+        const qrisFinal = qrisDinamisBase + crcBaru;
 
         // Tampilkan kontainer hasil dan teks payload-nya
         document.getElementById('qrcode-container').style.display = 'flex';
         document.getElementById('payloadHasil').innerText = qrisFinal;
 
-        // 8. Gambar ulang atau buat QR Code baru
+        // 7. Gambar QR Code baru
         const qrcodeDiv = document.getElementById("qrcode");
         qrcodeDiv.innerHTML = ""; 
         
